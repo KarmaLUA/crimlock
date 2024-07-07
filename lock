@@ -1,0 +1,99 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Camera = workspace.CurrentCamera
+
+local LocalPlayer = Players.LocalPlayer
+local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local HumanoidRoot = Character:FindFirstChild("HumanoidRootPart")
+
+-- Settings
+local AimPart = "Head" -- "UpperTorso", "LowerTorso", "HumanoidRootPart", "Head"
+local TeamCheck = true
+local Prediction = true
+local PredictionSpeed = 80 -- higher values might be needed for higher ping connections
+
+-- Variables
+local PlayersTable = Players:GetPlayers()
+local Mouse = LocalPlayer:GetMouse()
+local Running = false
+
+-- Prediction function
+local function Predict(Part)
+    local Magnitude = (Part.Position - HumanoidRoot.Position).Magnitude
+    local Time = Magnitude / PredictionSpeed
+
+    local PredictedPosition = Part.Position + Part.Velocity * Time
+    return PredictedPosition
+end
+
+-- Aimbot function
+local function Aimbot()
+    for _, Player in pairs(PlayersTable) do
+        if Player.Name ~= LocalPlayer.Name and Player.Character and not Running then
+            if not TeamCheck or Player.TeamColor ~= LocalPlayer.TeamColor then
+                local Character = Player.Character
+                local Humanoid = Character:FindFirstChild("Humanoid")
+                local Target = Character:FindFirstChild(AimPart)
+
+                if Target and Humanoid.Health > 0 then
+                    local PredictedTargetPosition = Predict(Target)
+                    local CameraDirection = Camera.CFrame.LookVector
+                    local Magnitude = (PredictedTargetPosition - Camera.CFrame.Position).Magnitude
+                    local DotProduct = (CameraDirection * (PredictedTargetPosition - Camera.CFrame.Position)).Magnitude / Magnitude
+
+                    if Magnitude < 150 and DotProduct > 0.8 then
+                        -- Aimbot lock-on
+                        Running = true
+                        Camera.CFrame = Camera.CFrame:Lerp(
+                            CFrame.new(Camera.CFrame.Position, PredictedTargetPosition), 0.1
+                        )
+
+                        -- Stop the aimbot loop
+                        RunService.Heartbeat:Connect(function()
+                            if Target and Humanoid.Health > 0 then
+                                local PredictedTargetPosition = Predict(Target)
+                                Camera.CFrame = Camera.CFrame:Lerp(
+                                    CFrame.new(Camera.CFrame.Position, PredictedTargetPosition), 0.1
+                                )
+                            else
+                                -- Disable the aimbot
+                                Running = false
+                            end
+                        end)
+
+                        -- Break the loop
+                        break
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- Create UI
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Parent = game.CoreGui
+
+local Frame = Instance.new("Frame")
+Frame.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+Frame.Position = UDim2.new(0.5, -100, 0.5, -100)
+Frame.Size = UDim2.new(0, 200, 0, 200)
+Frame.Active = true
+Frame.Draggable = true
+
+local Toggle = Instance.new("TextButton")
+Toggle.Parent = Frame
+Toggle.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+Toggle.Position = UDim2.new(0.5, 0, 0.5, 0)
+Toggle.Size = UDim2.new(0, 100, 0, 50)
+Toggle.Font = Enum.Font.SourceSans
+Toggle.Text = "Aimbot"
+Toggle.TextColor3 = Color3.fromRGB(0, 0, 0)
+
+local Dropdown = Instance.new("TextBox")
+Dropdown.Parent = Frame
+Dropdown.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+Dropdown.Position = UDim2.new(0.5, 0, 0.6, 0)
+Dropdown.Size = UDim2.new(0, 100, 0, 30)
+Dropdown.Font = Enum.Font.SourceSans
+Dropdown.Text =
