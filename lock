@@ -1,4 +1,6 @@
 getgenv().PredictionVelocity = 15
+getgenv().AimbotSmoothness = 0.95 -- Added smoothing factor
+
 local aimbotEnabled = false
 local target = nil
 local stickyAimEnabled = false
@@ -10,7 +12,6 @@ local gui = Instance.new("ScreenGui")
 gui.Parent = game.CoreGui
 
 local rightMouseButtonDown = false
-
 game:GetService("UserInputService").InputBegan:Connect(function(input)
     if input.KeyCode == Enum.KeyCode.X then
         aimbotEnabled = not aimbotEnabled
@@ -124,13 +125,20 @@ game:GetService("UserInputService").InputEnded:Connect(function(input)
 end)
 
 local lastLockedPlayer = nil
-
 game:GetService("RunService").RenderStepped:Connect(function()
     if aimbotEnabled and rightMouseButtonDown and lockedPlayer and lockedPart then
         if lockedPlayer.Character and lockedPlayer.Character:FindFirstChild("Head") then
             local part = lockedPart
             local predictedPosition = predictPosition(part)
-            game.Workspace.CurrentCamera.CFrame = CFrame.new(game.Workspace.CurrentCamera.CFrame.Position, predictedPosition)
+            
+            -- Calculate the direction to the target
+            local direction = (predictedPosition - game.Workspace.CurrentCamera.CFrame.Position).Unit
+            
+            -- Calculate the target CFrame
+            local targetCFrame = CFrame.new(game.Workspace.CurrentCamera.CFrame.Position, game.Workspace.CurrentCamera.CFrame.Position + direction)
+            
+            -- Apply smoothing
+            game.Workspace.CurrentCamera.CFrame = game.Workspace.CurrentCamera.CFrame:Lerp(targetCFrame, getgenv().AimbotSmoothness)
             
             -- Display notification for locked player
             if lockedPlayer ~= lastLockedPlayer then
