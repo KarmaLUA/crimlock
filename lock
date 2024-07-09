@@ -1,99 +1,155 @@
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local Camera = workspace.CurrentCamera
+getgenv().PredictionVelocity = 15
+local aimbotEnabled = false
+local target = nil
+local stickyAimEnabled = false
+local stickyAimActive = false
+local lockedPart = nil
+local lockedPlayer = nil
+local lockTarget = "Head" -- Can be set to "Head" or "HumanoidRootPart"
+local gui = Instance.new("ScreenGui")
+gui.Parent = game.CoreGui
 
-local LocalPlayer = Players.LocalPlayer
-local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-local HumanoidRoot = Character:FindFirstChild("HumanoidRootPart")
+local rightMouseButtonDown = false
 
--- Settings
-local AimPart = "Head" -- "UpperTorso", "LowerTorso", "HumanoidRootPart", "Head"
-local TeamCheck = true
-local Prediction = true
-local PredictionSpeed = 80 -- higher values might be needed for higher ping connections
+game:GetService("UserInputService").InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.X then
+        aimbotEnabled = not aimbotEnabled
+        if aimbotEnabled then
+            game:GetService("StarterGui"):SetCore("SendNotification", {
+                Title = "femboyhub",
+                Text = "Aimbot Enabled",
+                Duration = 5
+            })
+            print("Aimbot: ON")
+        else
+            game:GetService("StarterGui"):SetCore("SendNotification", {
+                Title = "femboyhub",
+                Text = "Aimbot Disabled",
+                Duration = 5
+            })
+            print("Aimbot: OFF")
+            stickyAimEnabled = false
+            stickyAimActive = false
+            lockedPart = nil
+            lockedPlayer = nil
+        end
+    end
+end)
 
--- Variables
-local PlayersTable = Players:GetPlayers()
-local Mouse = LocalPlayer:GetMouse()
-local Running = false
-
--- Prediction function
-local function Predict(Part)
-    local Magnitude = (Part.Position - HumanoidRoot.Position).Magnitude
-    local Time = Magnitude / PredictionSpeed
-
-    local PredictedPosition = Part.Position + Part.Velocity * Time
-    return PredictedPosition
+function isPlayerBehindWall(player)
+    local character = player.Character
+    if not character then return true end
+    
+    local head = character:FindFirstChild("Head")
+    if not head then return true end
+    
+    local ray = Ray.new(game.Workspace.CurrentCamera.CFrame.Position, (head.Position - game.Workspace.CurrentCamera.CFrame.Position).unit * 1000)
+    local part, position = game.Workspace:FindPartOnRayWithIgnoreList(ray, {game.Workspace.CurrentCamera, game.Players.LocalPlayer.Character})
+    
+    return part and part:IsDescendantOf(character) == false
 end
 
--- Aimbot function
-local function Aimbot()
-    for _, Player in pairs(PlayersTable) do
-        if Player.Name ~= LocalPlayer.Name and Player.Character and not Running then
-            if not TeamCheck or Player.TeamColor ~= LocalPlayer.TeamColor then
-                local Character = Player.Character
-                local Humanoid = Character:FindFirstChild("Humanoid")
-                local Target = Character:FindFirstChild(AimPart)
+function findNearestPlayer()
+    local nearestPlayer = nil
+    local nearestPart = nil
+    local nearestDistance = math.huge
+    local cursorPos = game:GetService("UserInputService"):GetMouseLocation()
+    local playersNotBehindWalls = {}
+    local playersBehindWalls = {}
 
-                if Target and Humanoid.Health > 0 then
-                    local PredictedTargetPosition = Predict(Target)
-                    local CameraDirection = Camera.CFrame.LookVector
-                    local Magnitude = (PredictedTargetPosition - Camera.CFrame.Position).Magnitude
-                    local DotProduct = (CameraDirection * (PredictedTargetPosition - Camera.CFrame.Position)).Magnitude / Magnitude
+    for _, player in pairs(game.Players:GetPlayers()) do
+        if player.Character and player.Character:FindFirstChild("Humanoid") and player.Character:FindFirstChild("Head") and player ~= game.Players.LocalPlayer then
+            local bodyPart = player.Character:FindFirstChild("HumanoidRootPart") or player.Character:FindFirstChild("UpperTorso")
+            local screenPos, onScreen = game.Workspace.CurrentCamera:WorldToViewportPoint(bodyPart.Position)
+            local distance = (Vector2.new(screenPos.X, screenPos.Y) - Vector2.new(cursorPos.X, cursorPos.Y)).Magnitude
 
-                    if Magnitude < 150 and DotProduct > 0.8 then
-                        -- Aimbot lock-on
-                        Running = true
-                        Camera.CFrame = Camera.CFrame:Lerp(
-                            CFrame.new(Camera.CFrame.Position, PredictedTargetPosition), 0.1
-                        )
-
-                        -- Stop the aimbot loop
-                        RunService.Heartbeat:Connect(function()
-                            if Target and Humanoid.Health > 0 then
-                                local PredictedTargetPosition = Predict(Target)
-                                Camera.CFrame = Camera.CFrame:Lerp(
-                                    CFrame.new(Camera.CFrame.Position, PredictedTargetPosition), 0.1
-                                )
-                            else
-                                -- Disable the aimbot
-                                Running = false
-                            end
-                        end)
-
-                        -- Break the loop
-                        break
-                    end
+            if onScreen and distance < 50 then
+                if isPlayerBehindWall(player) then
+                    table.insert(playersBehindWalls, {player = player, distance = distance})
+                else
+                    table.insert(playersNotBehindWalls, {player = player, distance = distance})
                 end
             end
         end
     end
+
+    -- Sort players by distance
+    table.sort(playersNotBehindWalls, function(a, b) return a.distance < b.distance end)
+    table.sort(playersBehindWalls, function(a, b) return a.distance < b.distance end)
+
+    -- Prioritize players not behind walls
+    if #playersNotBehindWalls > 0 then
+        nearestPlayer = playersNotBehindWalls[1].player
+    elseif #playersBehindWalls > 0 then
+        nearestPlayer = playersBehindWalls[1].player
+    end
+
+    if nearestPlayer then
+        nearestPart = nearestPlayer.Character:FindFirstChild("Head")
+    end
+
+    return nearestPlayer, nearestPart
 end
 
--- Create UI
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Parent = game.CoreGui
+function predictPosition(part)
+    if getgenv().PredictMovement and part and part.Parent and part.Parent:FindFirstChild("Humanoid") then
+        local humanoid = part.Parent:FindFirstChild("Humanoid")
+        local velocity = humanoid.MoveDirection * humanoid.WalkSpeed
+        return part.Position + (velocity * getgenv().PredictionVelocity / 100)
+    end
+    return part.Position
+end
 
-local Frame = Instance.new("Frame")
-Frame.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-Frame.Position = UDim2.new(0.5, -100, 0.5, -100)
-Frame.Size = UDim2.new(0, 200, 0, 200)
-Frame.Active = true
-Frame.Draggable = true
+game:GetService("UserInputService").InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then
+        rightMouseButtonDown = true
+        -- Lock onto a target when right mouse button is pressed
+        if aimbotEnabled then
+            local newTarget, newPart = findNearestPlayer()
+            if newTarget and newPart then
+                lockedPlayer = newTarget
+                lockedPart = newPart
+            end
+        end
+    end
+end)
 
-local Toggle = Instance.new("TextButton")
-Toggle.Parent = Frame
-Toggle.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-Toggle.Position = UDim2.new(0.5, 0, 0.5, 0)
-Toggle.Size = UDim2.new(0, 100, 0, 50)
-Toggle.Font = Enum.Font.SourceSans
-Toggle.Text = "Aimbot"
-Toggle.TextColor3 = Color3.fromRGB(0, 0, 0)
+game:GetService("UserInputService").InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then
+        rightMouseButtonDown = false
+        -- Reset lock when right mouse button is released
+        lockedPlayer = nil
+        lockedPart = nil
+    end
+end)
 
-local Dropdown = Instance.new("TextBox")
-Dropdown.Parent = Frame
-Dropdown.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-Dropdown.Position = UDim2.new(0.5, 0, 0.6, 0)
-Dropdown.Size = UDim2.new(0, 100, 0, 30)
-Dropdown.Font = Enum.Font.SourceSans
-Dropdown.Text =
+local lastLockedPlayer = nil
+
+game:GetService("RunService").RenderStepped:Connect(function()
+    if aimbotEnabled and rightMouseButtonDown and lockedPlayer and lockedPart then
+        if lockedPlayer.Character and lockedPlayer.Character:FindFirstChild("Head") then
+            local part = lockedPart
+            local predictedPosition = predictPosition(part)
+            game.Workspace.CurrentCamera.CFrame = CFrame.new(game.Workspace.CurrentCamera.CFrame.Position, predictedPosition)
+            
+            -- Display notification for locked player
+            if lockedPlayer ~= lastLockedPlayer then
+                game:GetService("StarterGui"):SetCore("SendNotification", {
+                    Title = "femboyhub",
+                    Text = "Locked on: " .. lockedPlayer.Name,
+                    Duration = 3
+                })
+                lastLockedPlayer = lockedPlayer
+            end
+        else
+            -- If the locked player's character is no longer valid, reset the lock
+            lockedPlayer = nil
+            lockedPart = nil
+        end
+    else
+        -- Reset lock when aimbot is disabled or right mouse button is released
+        lockedPlayer = nil
+        lockedPart = nil
+        lastLockedPlayer = nil
+    end
+end)
